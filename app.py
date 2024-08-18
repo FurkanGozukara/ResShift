@@ -5,14 +5,22 @@ import gradio as gr
 from pathlib import Path
 import os
 import random
-from pathlib import Path
-import os
 from omegaconf import OmegaConf
 from sampler import ResShiftSampler
 from PIL import Image
 import numpy as np
 from utils import util_image
 from basicsr.utils.download_util import load_file_from_url
+import time
+
+import platform
+
+def open_folder():
+    open_folder_path = os.path.abspath("results")
+    if platform.system() == "Windows":
+        os.startfile(open_folder_path)
+    elif platform.system() == "Linux":
+        os.system(f'xdg-open "{open_folder_path}"')
 
 os.environ['LOCAL_RANK'] = '0'
 _STEP = {
@@ -95,7 +103,7 @@ def predict(in_path, task='realsr', seed=12345, version='v3', randomize_seed=Fal
     if randomize_seed:
         seed = random.randint(0, 1000000)
 
-    print("printing  task ")
+    print("printing task")
     print(task)
     if task == 'faceir':
         scale = 1
@@ -135,6 +143,48 @@ def predict(in_path, task='realsr', seed=12345, version='v3', randomize_seed=Fal
 
     return out_path, out_path, seed
 
+def batch_process(input_folder, output_folder, task, seed, version, randomize_seed):
+    if not output_folder:
+        output_folder = 'results'
+    
+    input_path = Path(input_folder)
+    output_path = Path(output_folder)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    image_files = list(input_path.glob('*'))
+    total_files = len(image_files)
+    
+    print(f"Found {total_files} images in the input folder.")
+    
+    start_time = time.time()
+    for idx, img_file in enumerate(image_files, 1):
+        file_start_time = time.time()
+        print(f"Processing image {idx}/{total_files}: {img_file.name}")
+        
+        out_path, _, _ = predict(str(img_file), task, seed, version, randomize_seed)
+        
+        # Move the output file to the specified output folder
+        new_out_path = os.path.join(output_path, os.path.basename(out_path))
+        os.rename(out_path, new_out_path)
+        
+        file_end_time = time.time()
+        file_duration = file_end_time - file_start_time
+        
+        print(f"Finished processing {img_file.name} in {file_duration:.2f} seconds")
+        
+        # Calculate and display estimated time remaining
+        elapsed_time = file_end_time - start_time
+        avg_time_per_file = elapsed_time / idx
+        estimated_time_remaining = avg_time_per_file * (total_files - idx)
+        
+        print(f"Progress: {idx}/{total_files}")
+        print(f"Estimated time remaining: {estimated_time_remaining:.2f} seconds")
+        print("--------------------")
+
+    end_time = time.time()
+    total_duration = end_time - start_time
+    print(f"Batch processing completed. Total time: {total_duration:.2f} seconds")
+
 title = "ResShift V1 by SECourses: Efficient Diffusion Model for Image Super-resolution by Residual Shifting"
 description = r"""
 Official repo : https://github.com/zsyOAOA/ResShift
@@ -145,59 +195,79 @@ article = r"""
 
 """
 
-with gr.Blocks() as demo:
-    gr.Markdown(f"# {title}")
-    gr.Markdown(description)
-
-    with gr.Row():
-        with gr.Column():
-            in_image = gr.Image(label="Input: Low Quality Image", type="filepath")
-            task = gr.Radio(
-                choices=[
-                    ( "Real-world image super-resolution", "realsr"),
-                    ( "Bicubic (resize by Matlab) image super-resolution","bicsr"),
-                    ( "Blind Face Restoration","faceir")
-                ],
-                value="faceir",
-                label="Task"
-            )
-            gr.Markdown("Note: For 'faceir' task, scale is automatically set to 1.")
-            with gr.Row():
-                seed = gr.Number(value=12345, precision=0, label="Random seed", step=1)
-                randomize_seed = gr.Checkbox(label="Randomize seed", value=False)
-                version = gr.Dropdown(
-                    choices=["v1", "v2", "v3"],
-                    value="v3",
-                    label="Version"
-                )
-            btn = gr.Button("Generate")
-
-        with gr.Column():
-            out_image = gr.Image(label="Output: High Quality Image", format="png", type="filepath")         
-            download_button = gr.File(label="Download the output")
-
-    examples = [
-        ['./testdata/RealSet65/dog2.png', "realsr", 12345, "v3", False],
-        ['./testdata/RealSet65/bears.jpg', "realsr", 12345, "v3", False],
-        ['./testdata/RealSet65/oldphoto6.png', "realsr", 12345, "v3", False],
-        ['./testdata/Bicubicx4/lq_matlab/ILSVRC2012_val_00000067.png', "bicsr", 12345, "v3", False],
-        ['./testdata/Bicubicx4/lq_matlab/ILSVRC2012_val_00016898.png', "bicsr", 12345, "v3", False],
-    ]
-
-    gr.Examples(
-        examples=examples,
-        inputs=[in_image, task, seed, version, randomize_seed],
-        outputs=[out_image, download_button, seed],
-        fn=predict,
-        cache_examples=False
-    )
-
-    btn.click(
-        predict,
-        inputs=[in_image, task, seed, version, randomize_seed],
-        outputs=[out_image, download_button, seed],
-        api_name="super_resolution"
-    )
-
 if __name__ == "__main__":
-    demo.launch(inbrowser=True)
+    parser = argparse.ArgumentParser(description="ResShift Gradio App")
+    parser.add_argument("--share", action="store_true", help="Enable sharing of the Gradio app")
+    args = parser.parse_args()
+
+    with gr.Blocks() as demo:
+        gr.Markdown(f"# {title}")
+        gr.Markdown(description)
+
+        with gr.Row():
+            with gr.Column():
+                in_image = gr.Image(label="Input: Low Quality Image", type="filepath")
+                task = gr.Radio(
+                    choices=[
+                        ( "Real-world image super-resolution", "realsr"),
+                        ( "Bicubic (resize by Matlab) image super-resolution","bicsr"),
+                        ( "Blind Face Restoration","faceir")
+                    ],
+                    value="faceir",
+                    label="Task"
+                )
+                gr.Markdown("Note: For 'faceir' task, scale is automatically set to 1.")
+                with gr.Row():
+                    seed = gr.Number(value=12345, precision=0, label="Random seed", step=1)
+                    randomize_seed = gr.Checkbox(label="Randomize seed", value=False)
+                    version = gr.Dropdown(
+                        choices=["v1", "v2", "v3"],
+                        value="v3",
+                        label="Version"
+                    )
+                btn = gr.Button("Generate")
+
+            with gr.Column():
+                out_image = gr.Image(label="Output: High Quality Image", format="png", type="filepath")         
+                download_button = gr.File(label="Download the result")
+                btn_open_outputs = gr.Button("Open Results Folder")
+                btn_open_outputs.click(fn=open_folder)
+
+        with gr.Row():
+            batch_input_folder = gr.Textbox(label="Batch Input Folder Path")
+            batch_output_folder = gr.Textbox(label="Batch Output Folder Path (optional)")
+        
+        batch_btn = gr.Button("Batch Process")
+
+        examples = [
+            ['./testdata/RealSet65/dog2.png', "realsr", 12345, "v3", False],
+            ['./testdata/RealSet65/bears.jpg', "realsr", 12345, "v3", False],
+            ['./testdata/RealSet65/oldphoto6.png', "realsr", 12345, "v3", False],
+            ['./testdata/Bicubicx4/lq_matlab/ILSVRC2012_val_00000067.png', "bicsr", 12345, "v3", False],
+            ['./testdata/Bicubicx4/lq_matlab/ILSVRC2012_val_00016898.png', "bicsr", 12345, "v3", False],
+            ['./testdata/faceir/cropped_faces/lq/0143.png', "faceir", 12345, "v3", False],
+            ['./testdata/faceir/cropped_faces/lq/0885.png', "faceir", 12345, "v3", False],
+        ]
+
+        gr.Examples(
+            examples=examples,
+            inputs=[in_image, task, seed, version, randomize_seed],
+            outputs=[out_image, download_button, seed],
+            fn=predict,
+            cache_examples=False
+        )
+
+        btn.click(
+            predict,
+            inputs=[in_image, task, seed, version, randomize_seed],
+            outputs=[out_image, download_button, seed],
+            api_name="super_resolution"
+        )
+
+        batch_btn.click(
+            batch_process,
+            inputs=[batch_input_folder, batch_output_folder, task, seed, version, randomize_seed],
+            outputs=None
+        )
+
+    demo.launch(inbrowser=True, share=args.share)
