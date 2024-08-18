@@ -1,5 +1,6 @@
 --extra-index-url https://download.pytorch.org/whl/cu118
 torch==2.3.0
+torchvision
 xformers==0.0.26.post1
 gradio
 scipy==1.9.3

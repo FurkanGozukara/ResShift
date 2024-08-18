@@ -1,0 +1,5 @@
+.vs
+results
+weights
+venv
+__pycache__

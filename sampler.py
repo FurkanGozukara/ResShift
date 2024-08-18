@@ -3,7 +3,8 @@
 # Power by Zongsheng Yue 2022-07-13 16:59:27
 
 import os, sys, math, random
-
+from pathlib import Path
+import os
 import cv2
 import numpy as np
 from pathlib import Path
@@ -232,8 +233,8 @@ class ResShiftSampler(BaseSampler):
             if not out_path.exists():
                 out_path.mkdir(parents=True)
 
-        if self.num_gpus > 1:
-            dist.barrier()
+        #if self.num_gpus > 1:
+        #    dist.barrier()
 
         if in_path.is_dir():
             if mask_path is None:
@@ -303,12 +304,24 @@ class ResShiftSampler(BaseSampler):
                     mask=(im_mask_tensor - 0.5) / 0.5 if mask_path is not None else None,
                     )
 
-            im_sr = util_image.tensor2img(im_sr_tensor, rgb2bgr=True, min_max=(0.0, 1.0))
-            im_path = out_path / f"{in_path.stem}.png"
-            util_image.imwrite(im_sr, im_path, chn='bgr', dtype_in='uint8')
+            # Convert tensor to numpy array without changing the color space
+            im_sr = util_image.tensor2img(im_sr_tensor, rgb2bgr=False, min_max=(0.0, 1.0))
+        
+            # Generate unique filename
+            base_name = in_path.stem
+            file_name = f"{base_name}.png"
+            counter = 1
+            while (out_path / file_name).exists():
+                file_name = f"{base_name}_{counter:04d}.png"
+                counter += 1
+
+            im_path = out_path / file_name
+        
+            # Save the image in RGB format
+            util_image.imwrite(im_sr, im_path, chn='rgb', dtype_in='uint8')
 
         self.write_log(f"Processing done, enjoy the results in {str(out_path)}")
+        return im_sr, str(im_path)
 
 if __name__ == '__main__':
     pass
-

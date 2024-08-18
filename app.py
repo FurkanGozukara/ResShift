@@ -1,17 +1,20 @@
-#!/usr/bin/env python
-# -*- coding:utf-8 -*-
-# Power by Zongsheng Yue 2023-08-15 09:39:58
-
 import argparse
+from asyncio import tasks
+from tkinter.tix import Form
 import gradio as gr
 from pathlib import Path
-
+import os
+import random
+from pathlib import Path
+import os
 from omegaconf import OmegaConf
 from sampler import ResShiftSampler
-
+from PIL import Image
+import numpy as np
 from utils import util_image
 from basicsr.utils.download_util import load_file_from_url
 
+os.environ['LOCAL_RANK'] = '0'
 _STEP = {
     'v1': 15,
     'v2': 15,
@@ -20,24 +23,24 @@ _STEP = {
     'inpaint_imagenet': 4,
     'inpaint_face': 4,
     'faceir': 4,
-    }
+}
 _LINK = {
-    'vqgan': 'https://github.com/zsyOAOA/ResShift/releases/download/v2.0/autoencoder_vq_f4.pth',
-    'vqgan_face256': 'https://github.com/zsyOAOA/ResShift/releases/download/v2.0/celeba256_vq_f4_dim3_face.pth',
-    'vqgan_face512': 'https://github.com/zsyOAOA/ResShift/releases/download/v2.0/ffhq512_vq_f8_dim8_face.pth',
-    'v1': 'https://github.com/zsyOAOA/ResShift/releases/download/v2.0/resshift_realsrx4_s15_v1.pth',
-    'v2': 'https://github.com/zsyOAOA/ResShift/releases/download/v2.0/resshift_realsrx4_s15_v2.pth',
-    'v3': 'https://github.com/zsyOAOA/ResShift/releases/download/v2.0/resshift_realsrx4_s4_v3.pth',
-    'bicsr': 'https://github.com/zsyOAOA/ResShift/releases/download/v2.0/resshift_bicsrx4_s4.pth',
-    'inpaint_imagenet': 'https://github.com/zsyOAOA/ResShift/releases/download/v2.0/resshift_inpainting_imagenet_s4.pth',
-    'inpaint_face': 'https://github.com/zsyOAOA/ResShift/releases/download/v2.0/resshift_inpainting_face_s4.pth',
-    'faceir': 'https://github.com/zsyOAOA/ResShift/releases/download/v2.0/resshift_faceir_s4.pth',
-         }
+    'vqgan': 'https://huggingface.co/OwlMaster/restorer_files/resolve/main/autoencoder_vq_f4.pth',
+    'vqgan_face256': 'https://huggingface.co/OwlMaster/restorer_files/resolve/main/celeba256_vq_f4_dim3_face.pth',
+    'vqgan_face512': 'https://huggingface.co/OwlMaster/restorer_files/resolve/main/ffhq512_vq_f8_dim8_face.pth',
+    'v1': 'https://huggingface.co/OwlMaster/restorer_files/resolve/main/resshift_realsrx4_s15_v1.pth',
+    'v2': 'https://huggingface.co/OwlMaster/restorer_files/resolve/main/resshift_realsrx4_s15_v2.pth',
+    'v3': 'https://huggingface.co/OwlMaster/restorer_files/resolve/main/resshift_realsrx4_s4_v3.pth',
+    'bicsr': 'https://huggingface.co/OwlMaster/restorer_files/resolve/main/resshift_bicsrx4_s4.pth',
+    'inpaint_imagenet': 'https://huggingface.co/OwlMaster/restorer_files/resolve/main/resshift_inpainting_imagenet_s4.pth',
+    'inpaint_face': 'https://huggingface.co/OwlMaster/restorer_files/resolve/main/resshift_inpainting_face_s4.pth',
+    'faceir': 'https://huggingface.co/OwlMaster/restorer_files/resolve/main/resshift_faceir_s4.pth',
+}
 
 def get_configs(task='realsr', version='v3', scale=4):
     ckpt_dir = Path('./weights')
     if not ckpt_dir.exists():
-        ckpt_dir.mkdir()
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     if task == 'realsr':
         if version in ['v1', 'v2']:
@@ -46,39 +49,23 @@ def get_configs(task='realsr', version='v3', scale=4):
             configs = OmegaConf.load('./configs/realsr_swinunet_realesrgan256_journal.yaml')
         else:
             raise ValueError(f"Unexpected version type: {version}")
-        assert scale == 4, 'We only support the 4x super-resolution now!'
         ckpt_url = _LINK[version]
         ckpt_path = ckpt_dir / f'resshift_{task}x{scale}_s{_STEP[version]}_{version}.pth'
         vqgan_url = _LINK['vqgan']
         vqgan_path = ckpt_dir / f'autoencoder_vq_f4.pth'
     elif task == 'bicsr':
         configs = OmegaConf.load('./configs/bicx4_swinunet_lpips.yaml')
-        assert scale == 4, 'We only support the 4x super-resolution now!'
         ckpt_url = _LINK[task]
         ckpt_path = ckpt_dir / f'resshift_{task}x{scale}_s{_STEP[task]}.pth'
         vqgan_url = _LINK['vqgan']
         vqgan_path = ckpt_dir / f'autoencoder_vq_f4.pth'
-    # elif task == 'inpaint_imagenet':
-        # configs = OmegaConf.load('./configs/inpaint_lama256_imagenet.yaml')
-        # assert scale == 1, 'Please set scale equals 1 for image inpainting!'
-        # ckpt_url = _LINK[task]
-        # ckpt_path = ckpt_dir / f'resshift_{task}_s{_STEP[task]}.pth'
-        # vqgan_url = _LINK['vqgan']
-        # vqgan_path = ckpt_dir / f'autoencoder_vq_f4.pth'
-    # elif task == 'inpaint_face':
-        # configs = OmegaConf.load('./configs/inpaint_lama256_face.yaml')
-        # assert scale == 1, 'Please set scale equals 1 for image inpainting!'
-        # ckpt_url = _LINK[task]
-        # ckpt_path = ckpt_dir / f'resshift_{task}_s{_STEP[task]}.pth'
-        # vqgan_url = _LINK['vqgan_face256']
-        # vqgan_path = ckpt_dir / f'celeba256_vq_f4_dim3_face.pth'
-    # elif task == 'faceir':
-        # configs = OmegaConf.load('./configs/faceir_gfpgan512_lpips.yaml')
-        # assert scale == 1, 'Please set scale equals 1 for face restoration!'
-        # ckpt_url = _LINK[task]
-        # ckpt_path = ckpt_dir / f'resshift_{task}_s{_STEP[task]}.pth'
-        # vqgan_url = _LINK['vqgan_face512']
-        # vqgan_path = ckpt_dir / f'ffhq512_vq_f8_dim8_face.pth'
+    elif task == 'faceir':
+        configs = OmegaConf.load('./configs/faceir_gfpgan512_lpips.yaml')
+        scale = 1
+        ckpt_url = _LINK[task]
+        ckpt_path = ckpt_dir / f'resshift_{task}_s{_STEP[task]}.pth'
+        vqgan_url = _LINK['vqgan_face512']
+        vqgan_path = ckpt_dir / f'ffhq512_vq_f8_dim8_face.pth'
     else:
         raise TypeError(f"Unexpected task type: {task}!")
 
@@ -104,24 +91,38 @@ def get_configs(task='realsr', version='v3', scale=4):
 
     return configs
 
-def predict(in_path, task='realsrx4', seed=12345, scale=4, version='v3'):
+def predict(in_path, task='realsr', seed=12345, version='v3', randomize_seed=False):
+    if randomize_seed:
+        seed = random.randint(0, 1000000)
+
+    print("printing  task ")
+    print(task)
+    if task == 'faceir':
+        scale = 1
+        chop_size = 512
+        chop_stride = 480
+    else:
+        scale = 4
+        chop_size = 256
+        chop_stride = 224
+
     configs = get_configs(task, version, scale)
     resshift_sampler = ResShiftSampler(
             configs,
             sf=scale,
-            chop_size=256,
-            chop_stride=224,
+            chop_size=chop_size,
+            chop_stride=chop_stride,
             chop_bs=1,
             use_amp=True,
             seed=seed,
             padding_offset=configs.model.params.get('lq_size', 64),
             )
 
-    out_dir = Path('restored_output')
+    out_dir = Path('results')
     if not out_dir.exists():
-        out_dir.mkdir()
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-    resshift_sampler.inference(
+    im_sr, out_path = resshift_sampler.inference(
             in_path,
             out_dir,
             mask_path=None,
@@ -129,72 +130,74 @@ def predict(in_path, task='realsrx4', seed=12345, scale=4, version='v3'):
             noise_repeat=False
             )
 
-    out_path = out_dir / f"{Path(in_path).stem}.png"
-    assert out_path.exists(), 'Super-resolution failed!'
-    im_sr = util_image.imread(out_path, chn="rgb", dtype="uint8")
+    # Convert numpy array to PIL Image for Gradio
+    im_sr_pil = Image.fromarray((im_sr * 255).astype(np.uint8))
 
-    return im_sr, str(out_path)
+    return out_path, out_path, seed
 
-title = "ResShift: Efficient Diffusion Model for Image Super-resolution by Residual Shifting"
+title = "ResShift V1 by SECourses: Efficient Diffusion Model for Image Super-resolution by Residual Shifting"
 description = r"""
-<b>Official Gradio demo</b> for <a href='https://github.com/zsyOAOA/ResShift' target='_blank'><b>ResShift: Efficient Diffusion Model for Image Super-resolution by Residual Shifting</b></a>.<br>
-🔥 ResShift is an efficient diffusion model designed for image super-resolution or restoration.<br>
+Official repo : https://github.com/zsyOAOA/ResShift
+
+# 1-Click Installers for Windows, RunPod & Massed Compute on : https://www.patreon.com/posts/110331752
 """
 article = r"""
-If ResShift is helpful for your work, please help to ⭐ the <a href='https://github.com/zsyOAOA/ResShift' target='_blank'>Github Repo</a>. Thanks!
-[![GitHub Stars](https://img.shields.io/github/stars/zsyOAOA/ResShift?affiliations=OWNER&color=green&style=social)](https://github.com/zsyOAOA/ResShift)
 
----
-If our work is useful for your research, please consider citing:
-```bibtex
-@inproceedings{yue2023resshift,
-  title={ResShift: Efficient Diffusion Model for Image Super-resolution by Residual Shifting},
-  author={Yue, Zongsheng and Wang, Jianyi and Loy, Chen Change},
-  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
-  year={2023},
-  volume = {36},
-  pages = {13294--13307},
-}
-```
-
-📋 **License**
-
-This project is licensed under <a rel="license" href="https://github.com/zsyOAOA/ResShift/blob/master/LICENSE">S-Lab License 1.0</a>.
-Redistribution and use for non-commercial purposes should follow this license.
-
-📧 **Contact**
-
-If you have any questions, please feel free to contact me via <b>zsyzam@gmail.com</b>.
-![visitors](https://visitor-badge.laobi.icu/badge?page_id=zsyOAOA/ResShift)
 """
-demo = gr.Interface(
-    fn=predict,
-    inputs=[
-        gr.Image(type="filepath", label="Input: Low Quality Image"),
-        gr.Dropdown(
-            choices=["realsr", "bicsr"],
-            value="realsr",
-            label="Task",
-            ),
-        gr.Number(value=12345, precision=0, label="Ranom seed")
-    ],
-    outputs=[
-        gr.Image(type="numpy", label="Output: High Quality Image"),
-        gr.outputs.File(label="Download the output")
-    ],
-    title=title,
-    description=description,
-    article=article,
-    examples=[
-        ['./testdata/RealSet65/0030.jpg',  "realsr", 12345],
-        ['./testdata/RealSet65/dog2.png',  "realsr", 12345],
-        ['./testdata/RealSet65/bears.jpg', "realsr", 12345],
-        ['./testdata/RealSet65/oldphoto6.png', "realsr", 12345],
-        ['./testdata/Bicubicx4/lq_matlab/ILSVRC2012_val_00000067.png', "bicsr", 12345],
-        ['./testdata/Bicubicx4/lq_matlab/ILSVRC2012_val_00016898.png', "bicsr", 12345],
-      ]
+
+with gr.Blocks() as demo:
+    gr.Markdown(f"# {title}")
+    gr.Markdown(description)
+
+    with gr.Row():
+        with gr.Column():
+            in_image = gr.Image(label="Input: Low Quality Image", type="filepath")
+            task = gr.Radio(
+                choices=[
+                    ( "Real-world image super-resolution", "realsr"),
+                    ( "Bicubic (resize by Matlab) image super-resolution","bicsr"),
+                    ( "Blind Face Restoration","faceir")
+                ],
+                value="faceir",
+                label="Task"
+            )
+            gr.Markdown("Note: For 'faceir' task, scale is automatically set to 1.")
+            with gr.Row():
+                seed = gr.Number(value=12345, precision=0, label="Random seed", step=1)
+                randomize_seed = gr.Checkbox(label="Randomize seed", value=False)
+                version = gr.Dropdown(
+                    choices=["v1", "v2", "v3"],
+                    value="v3",
+                    label="Version"
+                )
+            btn = gr.Button("Generate")
+
+        with gr.Column():
+            out_image = gr.Image(label="Output: High Quality Image", format="png", type="filepath")         
+            download_button = gr.File(label="Download the output")
+
+    examples = [
+        ['./testdata/RealSet65/dog2.png', "realsr", 12345, "v3", False],
+        ['./testdata/RealSet65/bears.jpg', "realsr", 12345, "v3", False],
+        ['./testdata/RealSet65/oldphoto6.png', "realsr", 12345, "v3", False],
+        ['./testdata/Bicubicx4/lq_matlab/ILSVRC2012_val_00000067.png', "bicsr", 12345, "v3", False],
+        ['./testdata/Bicubicx4/lq_matlab/ILSVRC2012_val_00016898.png', "bicsr", 12345, "v3", False],
+    ]
+
+    gr.Examples(
+        examples=examples,
+        inputs=[in_image, task, seed, version, randomize_seed],
+        outputs=[out_image, download_button, seed],
+        fn=predict,
+        cache_examples=False
     )
 
-demo.queue(concurrency_count=4)
-demo.launch(share=True)
+    btn.click(
+        predict,
+        inputs=[in_image, task, seed, version, randomize_seed],
+        outputs=[out_image, download_button, seed],
+        api_name="super_resolution"
+    )
 
+if __name__ == "__main__":
+    demo.launch(inbrowser=True)
