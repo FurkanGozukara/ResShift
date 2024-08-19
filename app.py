@@ -45,6 +45,34 @@ _LINK = {
     'faceir': 'https://huggingface.co/OwlMaster/restorer_files/resolve/main/resshift_faceir_s4.pth',
 }
 
+import cv2
+from PIL import Image
+import numpy as np
+
+def upscale_if_needed(image_path):
+    with Image.open(image_path) as img:
+        width, height = img.size
+        
+    if width < 295 and height < 295:
+        target_size = 295
+        scale_factor = target_size / max(width, height)
+        new_width = int(width * scale_factor)
+        new_height = int(height * scale_factor)
+        
+        # Read image with OpenCV
+        img = cv2.imread(image_path)
+        
+        # Upscale using Lanczos
+        upscaled = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_LANCZOS4)
+        
+        # Save the upscaled image
+        upscaled_path = image_path.replace('.', '_upscaled.')
+        cv2.imwrite(upscaled_path, upscaled)
+        
+        return upscaled_path
+    
+    return image_path
+
 def get_configs(task='realsr', version='v3', scale=4):
     ckpt_dir = Path('./weights')
     if not ckpt_dir.exists():
@@ -103,6 +131,7 @@ def predict(in_path, task='realsr', seed=12345, version='v3', randomize_seed=Fal
     if randomize_seed:
         seed = random.randint(0, 1000000)
 
+    in_path = upscale_if_needed(in_path)
     print("printing task")
     print(task)
     if task == 'faceir':
@@ -185,7 +214,7 @@ def batch_process(input_folder, output_folder, task, seed, version, randomize_se
     total_duration = end_time - start_time
     print(f"Batch processing completed. Total time: {total_duration:.2f} seconds")
 
-title = "ResShift V1 by SECourses: Efficient Diffusion Model for Image Super-resolution by Residual Shifting"
+title = "ResShift V2 by SECourses: Efficient Diffusion Model for Image Super-resolution by Residual Shifting"
 description = r"""
 Official repo : https://github.com/zsyOAOA/ResShift
 
